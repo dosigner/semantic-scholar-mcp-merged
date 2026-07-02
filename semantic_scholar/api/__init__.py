@@ -24,4 +24,10 @@ from .authors import (
 from .recommendations import (
     get_paper_recommendations_single,
     get_paper_recommendations_multi
+)
+
+from .photonics import (
+    search_photonics,
+    recent_photonics,
+    list_photonics_sources
 ) 

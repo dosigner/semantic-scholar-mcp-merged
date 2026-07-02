@@ -13,7 +13,7 @@ from .utils.logger import logger
 
 # Import API modules to register tools
 # Note: This must come AFTER mcp is initialized
-from .api import papers, authors, recommendations, tracking
+from .api import papers, authors, recommendations, tracking, photonics
 
 _TASK_CANCEL_TIMEOUT = 5  # seconds to wait for tasks to finish on shutdown
 

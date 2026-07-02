@@ -31,7 +31,7 @@ Everything else in this repo (the integration wiring, tests, and fixes) is local
 
 **Local fix:** journal papers whose venue string lacks a keyword like "journal"/"letters" (e.g. *Optics Express*, *Physica Scripta*) were being exported as `@misc` with the journal field dropped. `detect_entry_type()` now falls back to `@article` for any named, non-conference venue, and enrichment keys off missing `publicationTypes`/`journal` (which search tools never populate) so the correct type is detected. Verified against the live API.
 
-## Available tools (21 total)
+## Available tools (24 total)
 
 **Papers (8):** `paper_relevance_search`, `paper_bulk_search`, `paper_title_search`, `paper_details`, `paper_batch_details`, `paper_authors`, `paper_autocomplete`, `snippet_search`
 
@@ -44,6 +44,8 @@ Everything else in this repo (the integration wiring, tests, and fixes) is local
 **BibTeX & tracking (3, new):** `export_bibtex`, `list_tracked_papers`, `clear_tracked_papers`
 
 **Author de-duplication (2, new):** `find_duplicate_authors`, `consolidate_authors`
+
+**Photonics venue presets (3, new):** `search_photonics`, `recent_photonics`, `list_photonics_sources`
 
 > All tools follow the official [Semantic Scholar API documentation](https://api.semanticscholar.org/api-docs/) for field specifications.
 
@@ -127,6 +129,43 @@ papers = await paper_batch_details(
     fields="title,authors,year,citations",
 )
 ```
+
+## Photonics venue presets
+
+Four major photonics publishers — [Optica Publishing Group](https://opg.optica.org/),
+[SPIE](https://www.spiedigitallibrary.org/), [Light: Science & Applications](https://www.nature.com/lsa/),
+and [Nature Photonics](https://www.nature.com/nphoton/) — have no public search
+API. But Semantic Scholar indexes them all, and its search accepts a `venue`
+filter, so three convenience tools scope searches to these publishers via a
+curated registry of **verified** venue strings (`semantic_scholar/api/photonics.py`):
+
+- `search_photonics(query, sources=[...], year, min_citation_count, limit)` — relevance search restricted to the presets.
+- `recent_photonics(days=30, sources=[...])` — newest-first monitoring over a date window (for new-paper surveillance); pass `publication_date_or_year` to set an explicit range.
+- `list_photonics_sources()` — the registry: source keys, labels, and covered venue strings.
+
+Source keys: `optica`, `spie`, `nature_lsa`, `nature_photonics` (omit `sources` for all four). Results auto-track, so `export_bibtex` works directly on them.
+
+```python
+# Topic search across all four publishers
+r = await search_photonics(context, query="diffractive deep neural network adaptive optics", limit=15)
+# New Nature Photonics / LSA papers in the last 60 days
+r = await recent_photonics(context, days=60, sources=["nature_photonics", "nature_lsa"])
+```
+
+**Coverage caveats** (Semantic Scholar quirks, handled in the registry):
+
+- Venue strings are matched exactly (normalized), and S2's stored form is often lowercased/expanded — the registry uses the *observed* strings, not guesses.
+- The `venue` filter is comma-joined, so a venue name containing a comma is inexpressible; such names are recorded in `KNOWN_UNFILTERABLE` and surfaced by `list_photonics_sources` (currently none).
+- **SPIE conference proceedings are indexed per-conference** in S2, so the `spie` preset covers SPIE journals plus a few major proceedings — not all of *Proceedings of SPIE*. For a specific conference, pass its venue name to `paper_relevance_search` directly.
+
+**Re-verifying venue strings.** If S2 renames a venue, refresh the registry:
+
+```bash
+uv run python scripts/verify_photonics_venues.py      # prints a paste-ready registry block
+uv run pytest -q -m live test/test_photonics_live.py  # regression guard: every venue string still filters
+```
+
+A companion Claude Code subagent, `photonics-lit-diver` (`~/.claude/agents/`, personal — not in this repo), orchestrates a staged deep-dive (seed → snowball via citations/references → recommendation expansion → dedupe/rank → BibTeX) over these tools.
 
 ## HTTP bridge (optional, off by default)
 
