@@ -57,7 +57,7 @@ Everything else in this repo (the integration wiring, tests, and fixes) is local
 This fork is set up for **local use**, run straight from the checkout with [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-git clone <this-repo-url> semantic-scholar-mcp-merged
+git clone https://github.com/dosigner/semantic-scholar-mcp-merged.git
 cd semantic-scholar-mcp-merged
 uv run semantic-scholar-mcp-merged
 ```
