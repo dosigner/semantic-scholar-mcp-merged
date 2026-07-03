@@ -113,11 +113,27 @@ PHOTONICS_SOURCES: Dict[str, PhotonicsSource] = {
 # explicit, surfaced record so coverage gaps are never silent.
 KNOWN_UNFILTERABLE: Dict[str, List[str]] = {}
 
-# Default response fields for the search tools. All are in PaperFields.VALID_FIELDS.
-# Including externalIds/venue makes downstream export_bibtex enrichment cheaper.
+# Default response fields for search_photonics (relevance search — you want the
+# abstract to judge relevance). All are in PaperFields.VALID_FIELDS. Including
+# externalIds/venue makes downstream export_bibtex enrichment cheaper.
 _DEFAULT_FIELDS: List[str] = [
     "title",
     "abstract",
+    "year",
+    "citationCount",
+    "authors",
+    "url",
+    "venue",
+    "publicationDate",
+    "externalIds",
+]
+
+# Leaner default for recent_photonics: it's a monitoring firehose that can return
+# hundreds of papers with no query, so abstracts are omitted by default to keep
+# the payload scannable and avoid blowing the response-size limit. Pass an
+# explicit `fields` list (add "abstract") when you want fuller records.
+_RECENT_FIELDS: List[str] = [
+    "title",
     "year",
     "citationCount",
     "authors",
@@ -227,6 +243,7 @@ async def recent_photonics(
     publication_date_or_year: Optional[str] = None,
     min_citation_count: Optional[int] = None,
     fields: Optional[List[str]] = None,
+    limit: int = 50,
     token: Optional[str] = None,
 ) -> Dict:
     """New-paper monitoring for the four photonics publishers, sorted newest
@@ -234,8 +251,12 @@ async def recent_photonics(
 
     `days` sets the window (last N days); pass `publication_date_or_year`
     (e.g. "2026-01-01:2026-06-30") to override it. `query` is optional — omit
-    it to list everything new in the selected venues. `token` continues bulk
-    pagination. Results are auto-tracked for export_bibtex.
+    it to list everything new in the selected venues. `limit` caps how many
+    (newest) papers are returned (default 50) so a wide window doesn't flood
+    the response; `total` still reports the full count and `truncated` flags
+    when more exist. `token` continues bulk pagination. Abstracts are omitted
+    by default (pass `fields` to include them). Results are auto-tracked for
+    export_bibtex.
     """
     try:
         resolved_keys, venues = resolve_photonics_venues(sources)
@@ -243,21 +264,29 @@ async def recent_photonics(
         request = PaperBulkSearchRequest(
             query=query,
             token=token,
-            fields=fields or list(_DEFAULT_FIELDS),
+            fields=fields or list(_RECENT_FIELDS),
             sort="publicationDate:desc",
             min_citation_count=min_citation_count,
             publication_date_or_year=date_range,
             venue=venues,
         )
         result = await _client().bulk_search_papers(request)
-        track_papers(result, "recent_photonics")
         if isinstance(result, dict) and "error" not in result:
+            data = result.get("data") or []
+            truncated = len(data) > limit
+            if truncated:
+                result = {**result, "data": data[:limit]}
+            track_papers(result, "recent_photonics")
             result = {
                 "sources": resolved_keys,
                 "venue_filter": venues,
                 "date_range": date_range,
+                "returned": len(result.get("data") or []),
+                "truncated": truncated,
                 **result,
             }
+        else:
+            track_papers(result, "recent_photonics")
         return result
     except S2ValidationError as exc:
         return s2_exception_to_error_response(exc)

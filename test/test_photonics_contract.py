@@ -170,6 +170,41 @@ async def test_recent_photonics_days_window(mock_make_request):
     assert call["params"]["sort"] == "publicationDate:desc"
 
 
+async def test_recent_photonics_caps_results(mock_make_request):
+    # 5 papers returned but limit=2 -> newest 2 kept, truncated flagged, total intact
+    payload = {"total": 5, "data": [{"paperId": f"p{i}"} for i in range(5)]}
+    mock_make_request.install(photonics_api).queue_responses(payload)
+
+    result = await photonics_api.recent_photonics.fn(None, days=30, limit=2)
+
+    assert result["total"] == 5
+    assert result["returned"] == 2
+    assert result["truncated"] is True
+    assert [p["paperId"] for p in result["data"]] == ["p0", "p1"]
+    # only the returned (capped) papers are tracked, not all 5
+    assert PaperTracker.get_instance().count() == 2
+
+
+async def test_recent_photonics_not_truncated_when_under_limit(mock_make_request):
+    mock_make_request.install(photonics_api).queue_responses(
+        {"total": 2, "data": [{"paperId": "a"}, {"paperId": "b"}]}
+    )
+
+    result = await photonics_api.recent_photonics.fn(None, days=30, limit=50)
+
+    assert result["truncated"] is False
+    assert result["returned"] == 2
+
+
+async def test_recent_photonics_default_fields_omit_abstract(mock_make_request):
+    mock_make_request.install(photonics_api).queue_responses({"total": 0, "data": []})
+
+    await photonics_api.recent_photonics.fn(None, days=30)
+
+    call = mock_make_request.calls[0]
+    assert "abstract" not in call["params"]["fields"]
+
+
 async def test_recent_photonics_tracks_papers(mock_make_request):
     mock_make_request.install(photonics_api).queue_responses(
         {"total": 1, "data": [{"paperId": "r1"}]}
